@@ -11,5 +11,9 @@ datasets/*
 !**/dataset/ 
 **/raf-basic/*  
 
+*.pkl
+
+*.pth
+
 **/__pycache__/
 .DS_Store
