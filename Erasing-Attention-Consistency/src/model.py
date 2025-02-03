@@ -16,7 +16,7 @@ class Model(nn.Module):
         
         self.features = nn.Sequential(*list(resnet50.children())[:-2])  
         self.features2 = nn.Sequential(*list(resnet50.children())[-2:-1])  
-        self.fc = nn.Linear(2048, 7)  
+        self.fc = nn.Linear(2048, 8)  
         
         
     def forward(self, x):        
@@ -30,7 +30,7 @@ class Model(nn.Module):
         
         params = list(self.parameters())
         fc_weights = params[-2].data
-        fc_weights = fc_weights.view(1, 7, 2048, 1, 1)
+        fc_weights = fc_weights.view(1, 8, 2048, 1, 1)
         fc_weights = Variable(fc_weights, requires_grad = False)
 
         # attention
