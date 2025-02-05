@@ -31,6 +31,35 @@ class ViTBlock(nn.Module):
         x = x + self.mlp(self.norm2(x))
         return x
     
+class ResidualBlock(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Linear(in_features, out_features)
+        self.bn1 = nn.BatchNorm1d(out_features)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Linear(out_features, out_features)
+        self.bn2 = nn.BatchNorm1d(out_features)
+        
+        # 如果输入和输出维度不同，使用1x1卷积进行维度匹配
+        if in_features != out_features:
+            self.shortcut = nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.BatchNorm1d(out_features)
+            )
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x):
+        identity = self.shortcut(x)
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += identity
+        out = self.relu(out)
+        return out
+    
 
 class MAE_ViT(nn.Module):
     def __init__(self, num_stages=2, num_classes=7):
@@ -40,14 +69,14 @@ class MAE_ViT(nn.Module):
         self.pos_embed = nn.Parameter(torch.randn(1, 196, 768))  # (1, num_patches, dim)
         
         # Stage1 (MAE)
-        self.encoder = nn.Sequential(*[ViTBlock(768, 12) for _ in range(12)])
+        self.encoder = nn.Sequential(*[ViTBlock(768, 12) for _ in range(8)])
         self.decoder = nn.Sequential(*[ViTBlock(768, 12) for _ in range(4)])
         self.mask_token = nn.Parameter(torch.randn(1, 1, 768))
         self.register_buffer('all_indices', torch.arange(196))  # 假设总patch数为196
         
         # Stage2 (Supervised)
         self.cls_head = nn.Sequential(
-            nn.LayerNorm(768),
+            *[ResidualBlock(768, 768) for _ in range(3)],
             nn.Linear(768, num_classes)
         )
         

@@ -18,7 +18,7 @@ def main():
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])])
 
-    unlabeled_dataset = UnlabeledDataset(root='D:/FERexperiments/datasets/FERPlus', phase='train', transform=transform)
+    unlabeled_dataset = UnlabeledDataset(root='D:/FERexperiments/datasets/AffectNet', phase='val', transform=transform)
     train_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='train', transform=transform)
     test_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='test', transform=transform)
 
@@ -33,37 +33,41 @@ def main():
 
     print("Initializing...")
 
-
+    num_epochs_1 = 20
 
     print("stage 1")
     # 阶段1：无监督预训练
     model.stage = 1
-    for epoch in range(4):
+    for epoch in range(num_epochs_1):
         model.train()
-        loss = 0.0
+        running_loss = 0.0
         for batch_idx, imgs in enumerate(pretrain_dataloader):
             imgs = imgs.to(device)  # 确保数据在GPU
             
             # 前向传播
             recon = model(imgs)
-            loss += nn.MSELoss()(recon, model.patch_embed(imgs))
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        print(f"Epoch [{epoch+1}/100] | Batch [{batch_idx+1}/{len(pretrain_dataloader)}] | Loss: {loss.item():.4f}")
+            loss = nn.MSELoss()(recon, model.patch_embed(imgs))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+        print(f"Epoch [{epoch+1}/{num_epochs_1}]| Loss: {running_loss / (batch_idx + 1):.4f}")
             
     
     # 阶段2：监督微调
     model.stage = 2
-    optimizer = torch.optim.AdamW(model.encoder.parameters(), lr=1e-5)
+    optimizer = torch.optim.AdamW(model.encoder.parameters(), lr=1e-2)
     criterion = nn.CrossEntropyLoss()
 
     for param in model.encoder.parameters():  
         param.requires_grad = False  
 
     print("stage 2")
+
+    num_epochs_2 = 40
     
-    for epoch in range(5):
+    for epoch in range(num_epochs_2):
         model.train()
         train_loss = 0.0
         for imgs, labels in finetune_train_loader:
@@ -96,7 +100,7 @@ def main():
         test_loss /= len(finetune_test_loader)
         test_acc = 100 * correct / total
         
-        print(f"Epoch [{epoch+1}/50] | "
+        print(f"Epoch [{epoch+1}/{num_epochs_2}] | "
               f"Train Loss: {train_loss:.4f} | "
               f"Test Loss: {test_loss:.4f} | "
               f"Accuracy: {test_acc:.2f}%")
