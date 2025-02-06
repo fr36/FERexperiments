@@ -54,7 +54,9 @@ def main():
             running_loss += loss.item()
         print(f"Epoch [{epoch+1}/{num_epochs_1}]| Loss: {running_loss / (batch_idx + 1):.4f}")
             
-    
+    # 展示掩码和重构后的图像
+    # 需要你帮我完成
+
     # 阶段2：监督微调
     model.stage = 2
     optimizer = torch.optim.AdamW(model.encoder.parameters(), lr=1e-2)

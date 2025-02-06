@@ -1,130 +1,79 @@
 import torch
 import torch.nn as nn
-from einops import rearrange
-
-class PatchEmbedding(nn.Module):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
-        super().__init__()
-        self.proj = nn.Conv2d(in_chans, embed_dim, 
-                            kernel_size=patch_size, 
-                            stride=patch_size)
-
-    def forward(self, x):
-        x = self.proj(x)  # (B, E, H/P, W/P)
-        x = rearrange(x, 'b e h w -> b (h w) e')
-        return x
-
-class ViTBlock(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4.):
-        super().__init__()
-        self.norm1 = nn.LayerNorm(dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads)
-        self.norm2 = nn.LayerNorm(dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, int(dim*mlp_ratio)),
-            nn.GELU(),
-            nn.Linear(int(dim*mlp_ratio), dim)
-        )
-
-    def forward(self, x):
-        x = x + self.attn(self.norm1(x), self.norm1(x), self.norm1(x))[0]
-        x = x + self.mlp(self.norm2(x))
-        return x
-    
-class ResidualBlock(nn.Module):
-    def __init__(self, in_features, out_features):
-        super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Linear(in_features, out_features)
-        self.bn1 = nn.BatchNorm1d(out_features)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Linear(out_features, out_features)
-        self.bn2 = nn.BatchNorm1d(out_features)
-        
-        # 如果输入和输出维度不同，使用1x1卷积进行维度匹配
-        if in_features != out_features:
-            self.shortcut = nn.Sequential(
-                nn.Linear(in_features, out_features),
-                nn.BatchNorm1d(out_features)
-            )
-        else:
-            self.shortcut = nn.Identity()
-
-    def forward(self, x):
-        identity = self.shortcut(x)
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += identity
-        out = self.relu(out)
-        return out
-    
+import torch.nn.functional as F
+import random
 
 class MAE_ViT(nn.Module):
-    def __init__(self, num_stages=2, num_classes=7):
-        super().__init__()
-        # Shared Components
-        self.patch_embed = PatchEmbedding()
-        self.pos_embed = nn.Parameter(torch.randn(1, 196, 768))  # (1, num_patches, dim)
+    def __init__(self, img_size=224, patch_size=16, num_classes=1000, dim=768, depth=12, heads=12, mlp_dim=3072, mask_ratio=0.75):
+        super(MAE_ViT, self).__init__()
+
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = (img_size // patch_size) ** 2
+        self.patch_dim = patch_size * patch_size * 3  # assuming RGB images
         
-        # Stage1 (MAE)
-        self.encoder = nn.Sequential(*[ViTBlock(768, 12) for _ in range(8)])
-        self.decoder = nn.Sequential(*[ViTBlock(768, 12) for _ in range(4)])
-        self.mask_token = nn.Parameter(torch.randn(1, 1, 768))
-        self.register_buffer('all_indices', torch.arange(196))  # 假设总patch数为196
+        # Patch Embedding Layer
+        self.patch_embedding = nn.Conv2d(3, dim, kernel_size=patch_size, stride=patch_size)
         
-        # Stage2 (Supervised)
-        self.cls_head = nn.Sequential(
-            *[ResidualBlock(768, 768) for _ in range(3)],
-            nn.Linear(768, num_classes)
+        # Positional Encoding
+        self.position_embedding = nn.Parameter(torch.randn(1, self.num_patches + 1, dim))
+        
+        # Class Token
+        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
+        
+        # Transformer Encoder Layers
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=dim, nhead=heads, dim_feedforward=mlp_dim),
+            num_layers=depth
         )
         
-        self.stage = 1  # 1: pretrain, 2: finetune
+        # Masking
+        self.mask_ratio = mask_ratio
+        self.mask_token = nn.Parameter(torch.randn(1, 1, dim))  # mask token for the masked patches
 
-    def random_masking(self, x, mask_ratio=0.75):
-        B, L, D = x.shape
-        len_keep = int(L * (1 - mask_ratio))
-        
-        # 生成随机排序索引
-        noise = torch.rand(B, L, device=x.device)
-        ids_shuffle = torch.argsort(noise, dim=1)
-        ids_keep = ids_shuffle[:, :len_keep]
-        ids_restore = torch.argsort(ids_shuffle, dim=1)  # 关键修复：保存恢复索引
-        
-        # 掩码可见部分
-        x_visible = torch.gather(x, 1, ids_keep.unsqueeze(-1).expand(-1, -1, D))
-        return x_visible, ids_keep, ids_restore
+        # Final Decoder (Reconstruction Head)
+        self.decoder = nn.Linear(dim, self.patch_dim)  # For reconstructing original patches
 
     def forward(self, x):
-        # Patch Embedding
-        x = self.patch_embed(x)  # (B, L, E)
-        x = x + self.pos_embed
+        # x: (batch_size, 3, 224, 224)
         
+        # Step 1: Patch Embedding
+        x = self.patch_embedding(x)  # (batch_size, dim, 14, 14)
+        x = x.flatten(2)  # (batch_size, dim, num_patches)
+        x = x.transpose(1, 2)  # (batch_size, num_patches, dim)
         
-        if self.stage == 1:
-            # 步骤1：掩码处理并保存索引
-            x_visible, ids_keep, ids_restore = self.random_masking(x)
-            
-            # 步骤2：编码器处理可见patch
-            latent = self.encoder(x_visible)  # [B, 49, 768]
-            
-            # 步骤3：重建完整序列
-            mask_tokens = self.mask_token.repeat(x.shape[0], 196 - ids_keep.shape[1], 1)  # [B, 147, 768]
-            x_full = torch.cat([latent, mask_tokens], dim=1)  # [B, 196, 768]
-            
-            # 步骤4：恢复原始patch顺序
-            x_full = torch.gather(
-                x_full, 
-                dim=1,
-                index=ids_restore.unsqueeze(-1).expand(-1, -1, x.shape[-1])
-            )  # [B, 196, 768]
-            # 步骤5：解码器处理完整序列
-            x_recon = self.decoder(x_full)  # [B, 196, 768]
-            return x_recon
+        # Step 2: Add Class Token
+        cls_tokens = self.cls_token.expand(x.size(0), -1, -1)  # (batch_size, 1, dim)
+        x = torch.cat((cls_tokens, x), dim=1)  # (batch_size, num_patches+1, dim)
         
-        else:
-            # Supervised Finetuning
-            x = self.encoder(x)
-            cls_token = x.mean(dim=1)  # Global average pooling
-            return self.cls_head(cls_token)
+        # Step 3: Add Positional Embedding
+        x = x + self.position_embedding
+        
+        # Step 4: Masking
+        # We randomly select patches to mask
+        mask = torch.rand(x.shape[1]) < self.mask_ratio  # (num_patches + 1,)
+        mask[0] = 1  # Never mask the class token
+        mask = mask.expand(x.size(0), -1)  # (batch_size, num_patches+1)
+        
+        # Replace masked patches with the mask token
+        x_masked = x.clone()
+        x_masked[mask] = self.mask_token
+        
+        # Step 5: Transformer Encoder
+        x_encoded = self.encoder(x_masked)  # (batch_size, num_patches+1, dim)
+        
+        # Step 6: Decoder (Reconstruction)
+        # We need to only reconstruct the masked patches (not class token)
+        x_decoded = self.decoder(x_encoded[:, 1:])  # Skip the class token, (batch_size, num_patches, patch_dim)
+        
+        # Reshape to match the original patch size (batch_size, num_patches, patch_dim)
+        x_decoded = x_decoded.view(x.size(0), -1, self.patch_size, self.patch_size, 3)  # (batch_size, num_patches, patch_size, patch_size, 3)
+        
+        return x_decoded, mask
+
+    def reconstruct(self, x):
+        """
+        仅用于重建功能（非训练过程）。
+        """
+        x_decoded, mask = self.forward(x)
+        return x_decoded

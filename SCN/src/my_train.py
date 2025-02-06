@@ -21,8 +21,8 @@ def parse_args():
     parser.add_argument('--pretrained', type=str, default=None,
                         help='Pretrained weights')
     parser.add_argument('--beta', type=float, default=0.7, help='Ratio of high importance group in one mini-batch.')
-    parser.add_argument('--relabel_epoch', type=int, default=10, help='Relabeling samples on each mini-batch after 10(Default) epochs.')
-    parser.add_argument('--margin_1', type=float, default=0.15, help='Rank regularization margin. Details described in the paper.')
+    parser.add_argument('--relabel_epoch', type=int, default=2, help='Relabeling samples on each mini-batch after 10(Default) epochs.')
+    parser.add_argument('--margin_1', type=float, default=0.07, help='Rank regularization margin. Details described in the paper.')
     parser.add_argument('--margin_2', type=float, default=0.2, help='Relabeling margin. Details described in the paper.')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size.')
     parser.add_argument('--optimizer', type=str, default="adam", help='Optimizer, adam or sgd.')
@@ -258,7 +258,7 @@ def run_training():
                 update_idx.cuda()
                 label_idx = indexes[update_idx] # get samples' index in train_loader
                 relabels = predicted_labels[update_idx] # predictions where (Pmax - Pgt > margin_2)
-                train_loader.dataset.update_labels(label_idx.cpu().numpy(), relabels.cpu().numpy())
+                train_loader.dataset.label[label_idx.cpu().numpy()] = relabels.cpu().numpy() # relabel samples in train_loader
                 
         scheduler.step()
         acc = correct_sum.float() / float(train_dataset.__len__())
