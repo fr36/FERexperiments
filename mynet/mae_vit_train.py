@@ -4,7 +4,7 @@ import torch.optim as optim
 from torchvision import transforms, datasets
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-from models.mae_vit import MAEViT
+from mae_vit import MAEViT
 from get_dataset import UnlabeledDataset, labeledDataset
 
 def unnormalize(tensor):
