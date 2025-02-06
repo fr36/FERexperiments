@@ -31,7 +31,7 @@ transform = transforms.Compose([
 
 # 加载数据集 (这里假设使用FER2013数据集)
 train_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='train', transform=transform)
-val_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='val', transform=transform)
+val_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='test', transform=transform)
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
