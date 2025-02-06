@@ -5,6 +5,7 @@ from torchvision import transforms, datasets
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from models.mae_vit import MAEViT
+from get_dataset import UnlabeledDataset, labeledDataset
 
 def unnormalize(tensor):
     mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -29,8 +30,8 @@ transform = transforms.Compose([
 ])
 
 # 加载数据集 (这里假设使用FER2013数据集)
-train_dataset = datasets.ImageFolder('path/to/fer2013/train', transform=transform)
-val_dataset = datasets.ImageFolder('path/to/fer2013/val', transform=transform)
+train_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='train', transform=transform)
+val_dataset = labeledDataset(root='D:/FERexperiments/datasets/RAF-DB', phase='val', transform=transform)
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)

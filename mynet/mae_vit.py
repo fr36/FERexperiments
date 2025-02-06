@@ -2,6 +2,41 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+def get_2d_sincos_pos_embed(embed_dim, grid_size):
+    """
+    生成2D正弦余弦位置编码
+    grid_size: int，网格大小
+    embed_dim: int，嵌入维度
+    """
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
+    grid = np.meshgrid(grid_w, grid_h)  # 2, gs, gs
+    grid = np.stack(grid, axis=0)  # 2, gs, gs
+    grid = grid.reshape([2, 1, grid_size, grid_size])
+    
+    pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, grid)
+    return pos_embed
+
+def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+    """
+    从网格位置生成1D正弦余弦位置编码
+    embed_dim: int，输出维度
+    pos: array，位置坐标
+    """
+    assert embed_dim % 2 == 0
+    omega = np.arange(embed_dim // 2, dtype=np.float32)
+    omega /= embed_dim / 2.
+    omega = 1. / 10000**omega  # (D/2,)
+    
+    pos = pos.reshape(-1)  # (M,)
+    out = np.einsum('m,d->md', pos, omega)  # (M, D/2)
+    
+    emb_sin = np.sin(out)  # (M, D/2)
+    emb_cos = np.cos(out)  # (M, D/2)
+    
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    return emb
+
 class MAEViT(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, 
                  embed_dim=768, depth=12, num_heads=12, 
